@@ -59,3 +59,23 @@ class DBLoader:
             results = [row[0] for row in cursor.fetchall()]
         logger.info(f"Fetched {len(results)} sample keys from {table_name}.{key_column}")
         return results
+
+    def execute_plsql(self, plsql_code: str, object_name: str, object_type: str):
+        """Executes PL/SQL block and checks for compilation errors."""
+        with self.connection.cursor() as cursor:
+            try:
+                cursor.execute(plsql_code)
+                # Check for compilation errors
+                cursor.execute(
+                    "SELECT line, position, text FROM user_errors WHERE name = :1 AND type = :2 ORDER BY sequence",
+                    [object_name.upper(), object_type.upper()]
+                )
+                errors = cursor.fetchall()
+                if errors:
+                    error_msgs = "\n".join([f"Line {e[0]},{e[1]}: {e[2]}" for e in errors])
+                    logger.error(f"Compilation errors for {object_type} {object_name}:\n{error_msgs}")
+                    raise ValueError(f"PL/SQL Compilation failed for {object_name}")
+                logger.info(f"Successfully compiled {object_type}: {object_name}")
+            except oracledb.DatabaseError as e:
+                logger.error(f"Error executing PL/SQL for {object_name}: {e}")
+                raise

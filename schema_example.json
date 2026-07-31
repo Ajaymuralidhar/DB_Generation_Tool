@@ -32,5 +32,14 @@
         {"column": "ORDER_ID", "references_table": "ORDERS", "references_column": "ORDER_ID"}
       ]
     }
+  ],
+  "procedures": [
+    {"name": "calc_total", "file_path": "sql_objects/procedures/calc_total.sql"}
+  ],
+  "functions": [
+    {"name": "get_user_status", "file_path": "sql_objects/functions/get_user_status.sql"}
+  ],
+  "triggers": [
+    {"name": "trg_orders_audit", "file_path": "sql_objects/triggers/trg_orders_audit.sql"}
   ]
 }

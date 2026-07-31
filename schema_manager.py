@@ -72,3 +72,17 @@ class SchemaManager:
                    f"REFERENCES {fk['references_table'].upper()}({fk['references_column']})")
             fk_ddls.append(ddl)
         return fk_ddls
+
+    def read_plsql_file(self, file_path: str) -> str:
+        with open(file_path, 'r') as f:
+            content = f.read()
+        return content.strip().rstrip('/').strip()
+
+    def get_procedures(self) -> list[dict]:
+        return self.schema_data.get('procedures', [])
+
+    def get_functions(self) -> list[dict]:
+        return self.schema_data.get('functions', [])
+
+    def get_triggers(self) -> list[dict]:
+        return self.schema_data.get('triggers', [])

@@ -1,0 +1,5 @@
+CREATE OR REPLACE PROCEDURE calc_total AS
+BEGIN
+    NULL;
+END;
+/

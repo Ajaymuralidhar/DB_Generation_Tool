@@ -13,6 +13,30 @@ from config import logger
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Oracle Schema Builder", page_icon="🗄️", layout="wide")
 
+# --- Startup Logic for PL/SQL Objects ---
+def create_dummy_plsql_files():
+    base_dir = "sql_objects"
+    dirs = ["procedures", "functions", "triggers"]
+    for d in dirs:
+        os.makedirs(os.path.join(base_dir, d), exist_ok=True)
+        
+    dummy_proc = os.path.join(base_dir, "procedures", "calc_total.sql")
+    if not os.path.exists(dummy_proc):
+        with open(dummy_proc, 'w') as f:
+            f.write("CREATE OR REPLACE PROCEDURE calc_total AS\nBEGIN\n    NULL;\nEND;\n/")
+            
+    dummy_func = os.path.join(base_dir, "functions", "get_user_status.sql")
+    if not os.path.exists(dummy_func):
+        with open(dummy_func, 'w') as f:
+            f.write("CREATE OR REPLACE FUNCTION get_user_status RETURN VARCHAR2 AS\nBEGIN\n    RETURN 'ACTIVE';\nEND;\n/")
+            
+    dummy_trig = os.path.join(base_dir, "triggers", "trg_orders_audit.sql")
+    if not os.path.exists(dummy_trig):
+        with open(dummy_trig, 'w') as f:
+            f.write("CREATE OR REPLACE TRIGGER trg_orders_audit\nBEFORE INSERT ON ORDERS\nFOR EACH ROW\nBEGIN\n    NULL;\nEND;\n/")
+
+create_dummy_plsql_files()
+
 # --- Custom Logging Handler ---
 class StreamlitLogHandler(logging.Handler):
     def __init__(self, log_container):
@@ -167,6 +191,21 @@ with tab_gen:
                 fk_ddls = schema_manager.generate_fk_ddl(table_name)
                 for ddl in fk_ddls:
                     db_loader.execute_ddl(ddl, ignore_errors=[2275])
+                    
+            # --- PL/SQL Compilation ---
+            status_text.info("Compiling Procedures & Functions...")
+            for proc in schema_manager.get_procedures():
+                plsql_code = schema_manager.read_plsql_file(proc['file_path'])
+                db_loader.execute_plsql(plsql_code, proc['name'], "PROCEDURE")
+                
+            for func in schema_manager.get_functions():
+                plsql_code = schema_manager.read_plsql_file(func['file_path'])
+                db_loader.execute_plsql(plsql_code, func['name'], "FUNCTION")
+                
+            status_text.info("Compiling Triggers...")
+            for trg in schema_manager.get_triggers():
+                plsql_code = schema_manager.read_plsql_file(trg['file_path'])
+                db_loader.execute_plsql(plsql_code, trg['name'], "TRIGGER")
                     
             status_text.success("🎉 Process completed successfully!")
             
