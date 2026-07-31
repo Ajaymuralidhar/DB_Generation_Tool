@@ -50,8 +50,7 @@ class StreamlitLogHandler(logging.Handler):
         self.log_text += msg + "\n"
         self.log_container.code(self.log_text, language="log")
 
-# --- DB Connection Caching ---
-@st.cache_resource
+# --- DB Connection Factory ---
 def get_db_loader(user, password, dsn):
     loader = DBLoader()
     loader.connect(user=user, password=password, dsn=dsn)
@@ -66,14 +65,15 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     st.subheader("Database Credentials")
-    db_user = st.text_input("Username", value="system")
-    db_password = st.text_input("Password", value="DevPassword123", type="password")
+    db_user = st.text_input("System Username", value="system")
+    db_password = st.text_input("System Password", value="DevPassword123", type="password")
     db_dsn = st.text_input("DSN (Host:Port/Service)", value="localhost:1521/FREEPDB1")
     
     st.subheader("Generation Settings")
+    target_schema = st.text_input("Target Schema (Oracle User)", value="GEN_SCHEMA_1").upper()
     rows = st.number_input("Rows per Table", min_value=1, value=1000, step=100)
     batch_size = st.number_input("Batch Size", min_value=1, value=10000, step=100)
-    force = st.checkbox("Force Recreate (Drop existing)", value=True)
+    force = st.checkbox("Force Recreate (Drop existing schema)", value=True)
     
     run_btn = st.button("🚀 Run Generator", type="primary", use_container_width=True)
 
@@ -136,17 +136,21 @@ with tab_gen:
                 tmp_file.write(st.session_state.schema_json)
                 tmp_schema_path = tmp_file.name
                 
-            status_text.info("Connecting to Database...")
-            db_loader = get_db_loader(db_user, db_password, db_dsn)
+            status_text.info(f"Provisioning schema {target_schema}...")
+            sys_db = DBLoader()
+            sys_db.connect(user=db_user, password=db_password, dsn=db_dsn)
+            
+            if force:
+                sys_db.drop_user(target_schema)
+                
+            sys_db.create_and_grant_user(target_schema, "GenPass123")
+            sys_db.close()
+            
+            status_text.info(f"Connecting as {target_schema}...")
+            db_loader = get_db_loader(target_schema, "GenPass123", db_dsn)
             
             schema_manager = SchemaManager(tmp_schema_path)
             data_generator = DataGenerator()
-            
-            if force:
-                status_text.info("Dropping existing tables...")
-                for table_name in schema_manager.get_drop_order():
-                    ddl = schema_manager.generate_drop_ddl(table_name)
-                    db_loader.execute_ddl(ddl, ignore_errors=[942])
                     
             status_text.info("Creating tables...")
             creation_order = schema_manager.get_creation_order()
@@ -223,36 +227,55 @@ with tab_explore:
     st.markdown("View tables generated in the current database.")
     
     try:
-        explore_db = get_db_loader(db_user, db_password, db_dsn)
+        explore_sys = get_db_loader(db_user, db_password, db_dsn)
         
-        # Fetch all user tables, filtering out Oracle internal system tables (which usually contain '$' or '#')
-        with explore_db.connection.cursor() as cursor:
-            cursor.execute("SELECT table_name FROM user_tables WHERE table_name NOT LIKE '%$%' AND table_name NOT LIKE '%#%' ORDER BY table_name")
-            tables = [row[0] for row in cursor.fetchall()]
+        # Fetch all non-system schemas
+        with explore_sys.connection.cursor() as cursor:
+            cursor.execute("SELECT username FROM all_users WHERE oracle_maintained = 'N' ORDER BY username")
+            schemas = [row[0] for row in cursor.fetchall()]
             
-        if tables:
-            col_sel, col_btn = st.columns([4, 1])
-            with col_sel:
-                selected_table = st.selectbox("Select Table", tables)
-            with col_btn:
-                st.markdown("<br>", unsafe_allow_html=True) # padding
-                if st.button("🔄 Refresh Data"):
-                    pass # Just reruns
+        if schemas:
+            col_schema, col_del = st.columns([4, 1])
+            with col_schema:
+                selected_schema = st.selectbox("Select Schema", schemas)
+            with col_del:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🗑️ Delete Entire Schema", type="primary"):
+                    explore_sys.drop_user(selected_schema)
+                    st.success(f"Deleted schema {selected_schema}!")
+                    st.rerun()
                     
-            if selected_table:
-                # Query table data
-                import pandas as pd
-                query = f"SELECT * FROM {selected_table} FETCH FIRST 100 ROWS ONLY"
-                df = pd.read_sql(query, explore_db.connection)
-                st.dataframe(df, use_container_width=True)
-                
-                # Show total row count
-                with explore_db.connection.cursor() as cursor:
-                    cursor.execute(f"SELECT COUNT(*) FROM {selected_table}")
-                    total_rows = cursor.fetchone()[0]
-                st.info(f"Total rows in {selected_table}: {total_rows} (Showing top 100)")
+            if selected_schema:
+                # Fetch tables for the selected schema
+                with explore_sys.connection.cursor() as cursor:
+                    cursor.execute(f"SELECT table_name FROM all_tables WHERE owner = '{selected_schema}' ORDER BY table_name")
+                    tables = [row[0] for row in cursor.fetchall()]
+                    
+                if tables:
+                    col_sel, col_btn = st.columns([4, 1])
+                    with col_sel:
+                        selected_table = st.selectbox("Select Table", tables)
+                    with col_btn:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🔄 Refresh Data"):
+                            pass 
+                            
+                    if selected_table:
+                        # Query table data using fully qualified name
+                        import pandas as pd
+                        query = f"SELECT * FROM {selected_schema}.{selected_table} FETCH FIRST 100 ROWS ONLY"
+                        df = pd.read_sql(query, explore_sys.connection)
+                        st.dataframe(df, use_container_width=True)
+                        
+                        # Show total row count
+                        with explore_sys.connection.cursor() as cursor:
+                            cursor.execute(f"SELECT COUNT(*) FROM {selected_schema}.{selected_table}")
+                            total_rows = cursor.fetchone()[0]
+                        st.info(f"Total rows in {selected_schema}.{selected_table}: {total_rows} (Showing top 100)")
+                else:
+                    st.info(f"No tables found in schema {selected_schema}.")
         else:
-            st.info("No tables found. Run the generator first!")
+            st.info("No schemas found. Run the generator first!")
             
     except Exception as e:
         st.error(f"Could not connect to database or fetch data: {e}")

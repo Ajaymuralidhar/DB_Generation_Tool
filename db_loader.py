@@ -79,3 +79,40 @@ class DBLoader:
             except oracledb.DatabaseError as e:
                 logger.error(f"Error executing PL/SQL for {object_name}: {e}")
                 raise
+
+    def drop_user(self, target_user: str):
+        """Drops a user and all their objects CASCADE."""
+        with self.connection.cursor() as cursor:
+            try:
+                # Attempt to kill active sessions (requires DBA privileges)
+                try:
+                    cursor.execute(f"SELECT sid, serial# FROM v$session WHERE username = '{target_user.upper()}'")
+                    sessions = cursor.fetchall()
+                    for sid, serial in sessions:
+                        cursor.execute(f"ALTER SYSTEM KILL SESSION '{sid},{serial}' IMMEDIATE")
+                except Exception as e:
+                    logger.debug(f"Could not kill sessions for {target_user}: {e}")
+
+                cursor.execute(f"DROP USER {target_user} CASCADE")
+                logger.info(f"Successfully dropped user {target_user} cascade.")
+            except oracledb.DatabaseError as e:
+                error, = e.args
+                if error.code == 1918: # user does not exist
+                    logger.info(f"User {target_user} does not exist. Skipping drop.")
+                else:
+                    logger.error(f"Error dropping user {target_user}: {e}")
+                    raise
+
+    def create_and_grant_user(self, new_user: str, new_password: str):
+        """Creates a new user and grants necessary privileges."""
+        with self.connection.cursor() as cursor:
+            try:
+                # Oracle 12c+ requires common users to start with C## if in CDB, 
+                # but we assume the user is connected to a PDB (like FREEPDB1) where local users don't need C##.
+                cursor.execute(f"CREATE USER {new_user} IDENTIFIED BY \"{new_password}\"")
+                cursor.execute(f"GRANT CONNECT, RESOURCE, CREATE VIEW, CREATE PROCEDURE, CREATE TRIGGER TO {new_user}")
+                cursor.execute(f"GRANT UNLIMITED TABLESPACE TO {new_user}")
+                logger.info(f"Successfully created and granted privileges to user {new_user}.")
+            except oracledb.DatabaseError as e:
+                logger.error(f"Error creating user {new_user}: {e}")
+                raise

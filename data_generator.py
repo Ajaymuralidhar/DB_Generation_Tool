@@ -52,8 +52,14 @@ class DataGenerator:
                     logger.warning(f"Faker method {faker_func_name} not found, defaulting to word.")
                     faker_methods.append(lambda: self.faker.word())
             else:
-                # Default fallback if no faker specified
-                faker_methods.append(lambda: self.faker.word())
+                # Default fallback based on column type if no faker specified
+                col_type = col.get('type', '').upper()
+                if 'DATE' in col_type or 'TIMESTAMP' in col_type:
+                    faker_methods.append(lambda: self.faker.date_time())
+                elif 'NUMBER' in col_type or 'INT' in col_type or 'FLOAT' in col_type:
+                    faker_methods.append(lambda: self.faker.random_int(min=1, max=10000))
+                else:
+                    faker_methods.append(lambda: self.faker.word())
 
         if not columns_to_insert:
             return "", []
