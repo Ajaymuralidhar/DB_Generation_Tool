@@ -8,6 +8,7 @@ from streamlit_ace import st_ace
 from schema_manager import SchemaManager
 from db_loader import DBLoader
 from data_generator import DataGenerator
+from schema_translator import SchemaTranslator
 from config import logger
 
 # --- Streamlit Page Config ---
@@ -75,6 +76,9 @@ with st.sidebar:
     batch_size = st.number_input("Batch Size", min_value=1, value=10000, step=100)
     force = st.checkbox("Force Recreate (Drop existing schema)", value=True)
     
+    st.subheader("Integrations")
+    gemini_api_key = st.text_input("Gemini API Key", type="password")
+    
     run_btn = st.button("🚀 Run Generator", type="primary", use_container_width=True)
 
 # Load default schema
@@ -85,6 +89,9 @@ if 'schema_json' not in st.session_state:
     except FileNotFoundError:
         st.session_state.schema_json = "{}"
 
+if 'editor_key' not in st.session_state:
+    st.session_state.editor_key = 0
+
 # Main content area
 tab_gen, tab_explore = st.tabs(["⚙️ Generator", "📊 Data Explorer"])
 
@@ -93,7 +100,26 @@ with tab_gen:
 
     with col1:
         st.subheader("📝 Schema Editor")
-        st.markdown("Edit the JSON schema below. Changes are saved automatically.")
+        st.markdown("Use AI to translate raw text, or edit the JSON manually.")
+        
+        raw_schema = st.text_area("✨ AI Translation: Raw Schema Input (Messy SQL / Text)", height=150)
+        if st.button("Translate to JSON", use_container_width=True):
+            if not gemini_api_key:
+                st.error("Please provide a Gemini API Key in the sidebar.")
+            elif not raw_schema.strip():
+                st.warning("Please provide raw schema text to translate.")
+            else:
+                with st.spinner("Translating..."):
+                    try:
+                        translator = SchemaTranslator(gemini_api_key)
+                        translated_json = translator.translate_to_json(raw_schema)
+                        st.session_state.schema_json = translated_json
+                        st.session_state.editor_key += 1
+                        st.success("Translated successfully! Review the JSON below.")
+                    except Exception as e:
+                        st.error(str(e))
+                        
+        st.markdown("---")
         
         # st_ace editor
         edited_schema = st_ace(
@@ -102,7 +128,7 @@ with tab_gen:
             theme='dracula',
             height=500,
             font_size=14,
-            key="ace_editor"
+            key=f"ace_editor_{st.session_state.editor_key}"
         )
         # Update session state with edited value
         if edited_schema != st.session_state.schema_json:
@@ -158,6 +184,12 @@ with tab_gen:
                 ddl = schema_manager.generate_create_ddl(table_name)
                 db_loader.execute_ddl(ddl, ignore_errors=[955] if not force else None)
                 
+            status_text.info("Creating indexes...")
+            for table_name in creation_order:
+                idx_ddls = schema_manager.generate_index_ddl(table_name)
+                for ddl in idx_ddls:
+                    db_loader.execute_ddl(ddl, ignore_errors=[955] if not force else None)
+                
             sample_keys_dict = {}
             
             # Data Generation Loop
@@ -185,8 +217,10 @@ with tab_gen:
                 pb.empty() # Clear progress bar for next table
                 
                 # Post-Insert Bounded Sampling
-                pk_col = next((col['name'] for col in table_schema['columns'] if col.get('primary_key')), None)
-                if pk_col:
+                # For composite primary keys, we sample the first column for FK lookups to avoid massive generator rewrite
+                pk_cols = table_schema.get('primary_key_columns', [])
+                if pk_cols:
+                    pk_col = pk_cols[0]
                     sample_keys = db_loader.fetch_sample_keys(table_name, pk_col)
                     sample_keys_dict[table_name] = sample_keys
                     

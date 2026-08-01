@@ -51,9 +51,11 @@ class SchemaManager:
         
         for col in table_def['columns']:
             col_ddl = f"{col['name']} {col['type']}"
-            if col.get('primary_key'):
-                col_ddl += " PRIMARY KEY"
             columns_ddl.append(col_ddl)
+            
+        if 'primary_key_columns' in table_def and table_def['primary_key_columns']:
+            pk_cols = ", ".join(table_def['primary_key_columns'])
+            columns_ddl.append(f"CONSTRAINT PK_{table_name.upper()} PRIMARY KEY ({pk_cols})")
             
         columns_str = ",\n    ".join(columns_ddl)
         ddl = f"CREATE TABLE {table_name.upper()} (\n    {columns_str}\n)"
@@ -72,6 +74,16 @@ class SchemaManager:
                    f"REFERENCES {fk['references_table'].upper()}({fk['references_column']})")
             fk_ddls.append(ddl)
         return fk_ddls
+
+    def generate_index_ddl(self, table_name: str) -> list[str]:
+        table_def = self.get_table_schema(table_name)
+        idx_ddls = []
+        for idx in table_def.get('indexes', []):
+            idx_name = idx['name'].upper()
+            idx_cols = ", ".join(idx['columns'])
+            ddl = f"CREATE INDEX {idx_name} ON {table_name.upper()} ({idx_cols})"
+            idx_ddls.append(ddl)
+        return idx_ddls
 
     def read_plsql_file(self, file_path: str) -> str:
         with open(file_path, 'r') as f:
