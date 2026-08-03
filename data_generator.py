@@ -24,7 +24,11 @@ class DataGenerator:
         # Parse Foreign Keys for fast lookup
         for fk in table_schema.get('foreign_keys', []):
             ref_table = fk['references_table'].upper()
-            fk_lookups[fk['column']] = ref_table
+            fk_col = fk.get('column')
+            if not fk_col and fk.get('columns'):
+                fk_col = fk.get('columns')[0]
+            if fk_col:
+                fk_lookups[fk_col] = ref_table
 
         for col in table_schema['columns']:
             # Skip auto-generated columns like Identity PKs

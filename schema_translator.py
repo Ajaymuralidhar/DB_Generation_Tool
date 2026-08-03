@@ -1,11 +1,10 @@
-import requests
 import json
 from config import logger
+from sarvamai import SarvamAI
 
 class SchemaTranslator:
     def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
+        self.client = SarvamAI(api_subscription_key=api_key)
 
     def translate_to_json(self, raw_text: str) -> str:
         """
@@ -29,7 +28,7 @@ Rules for Translation:
    - For Text/Remarks: "sentence" or "word"
 6. Ensure Foreign Keys are correctly parsed into a table-level array called "foreign_keys".
 
-Output ONLY valid JSON matching this structure. NO markdown blocks (like ```json), NO conversational text, NO explanations. Just the raw JSON object.
+Output ONLY valid JSON matching this structure. NO markdown blocks (like ```json). You MUST keep your internal reasoning extremely brief (under 50 words) to avoid hitting token limits. Immediately output the raw JSON object.
 
 Example Output Structure:
 {
@@ -51,46 +50,41 @@ Example Output Structure:
   "triggers": []
 }
 """
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "systemInstruction": {
-                "parts": [{"text": system_prompt.strip()}]
-            },
-            "contents": [
-                {
-                    "parts": [{"text": raw_text}]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.1
-            }
-        }
         
         try:
-            response = requests.post(self.endpoint, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
+            combined_prompt = f"{system_prompt.strip()}\n\n---\nRaw Schema Text to Translate:\n{raw_text}"
             
-            data = response.json()
-            try:
-                ai_content = data['candidates'][0]['content']['parts'][0]['text'].strip()
-            except (KeyError, IndexError):
-                raise ValueError("Unexpected response structure from Gemini API")
+            response = self.client.chat.completions(
+                model="sarvam-105b",
+                messages=[
+                    {"role": "user", "content": combined_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=4096,
+            )
             
-            # Clean up if the model accidentally included markdown blocks despite instructions
-            if ai_content.startswith("```json"):
-                ai_content = ai_content[7:]
-            if ai_content.startswith("```"):
-                ai_content = ai_content[3:]
-            if ai_content.endswith("```"):
-                ai_content = ai_content[:-3]
+            ai_content = response.choices[0].message.content
+            if ai_content is None:
+                reasoning = getattr(response.choices[0].message, 'reasoning_content', None)
+                if reasoning:
+                    logger.warning("API returned no content, falling back to parsing reasoning_content")
+                    ai_content = reasoning
+                else:
+                    raise ValueError(f"API returned no content. Full response: {response}")
+                
+            ai_content = ai_content.strip()
+            
+            # Extract JSON if there is surrounding text (vital if falling back to reasoning_content)
+            start_idx = ai_content.find('{')
+            end_idx = ai_content.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                ai_content = ai_content[start_idx:end_idx+1]
+            else:
+                logger.warning("Could not clearly identify JSON block boundaries in response.")
                 
             return ai_content.strip()
             
         except Exception as e:
             logger.error(f"Failed to translate schema: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"API Response: {e.response.text}")
             raise Exception(f"AI Translation failed: {e}")

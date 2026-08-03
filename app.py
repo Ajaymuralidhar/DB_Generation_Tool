@@ -77,7 +77,7 @@ with st.sidebar:
     force = st.checkbox("Force Recreate (Drop existing schema)", value=True)
     
     st.subheader("Integrations")
-    gemini_api_key = st.text_input("Gemini API Key", type="password")
+    sarvam_api_key = st.text_input("Sarvam API Key", type="password")
     
     run_btn = st.button("🚀 Run Generator", type="primary", use_container_width=True)
 
@@ -104,14 +104,14 @@ with tab_gen:
         
         raw_schema = st.text_area("✨ AI Translation: Raw Schema Input (Messy SQL / Text)", height=150)
         if st.button("Translate to JSON", use_container_width=True):
-            if not gemini_api_key:
-                st.error("Please provide a Gemini API Key in the sidebar.")
+            if not sarvam_api_key:
+                st.error("Please provide a Sarvam API Key in the sidebar.")
             elif not raw_schema.strip():
                 st.warning("Please provide raw schema text to translate.")
             else:
                 with st.spinner("Translating..."):
                     try:
-                        translator = SchemaTranslator(gemini_api_key)
+                        translator = SchemaTranslator(sarvam_api_key)
                         translated_json = translator.translate_to_json(raw_schema)
                         st.session_state.schema_json = translated_json
                         st.session_state.editor_key += 1
@@ -217,11 +217,29 @@ with tab_gen:
                 pb.empty() # Clear progress bar for next table
                 
                 # Post-Insert Bounded Sampling
-                # For composite primary keys, we sample the first column for FK lookups to avoid massive generator rewrite
-                pk_cols = table_schema.get('primary_key_columns', [])
-                if pk_cols:
-                    pk_col = pk_cols[0]
-                    sample_keys = db_loader.fetch_sample_keys(table_name, pk_col)
+                # Dynamically determine the correct column to sample based on foreign key dependencies
+                ref_col = None
+                for other_table in schema_manager.schema_data.get('tables', []):
+                    for fk in other_table.get('foreign_keys', []):
+                        if fk['references_table'].upper() == table_name:
+                            ref_col = fk.get('references_column')
+                            if not ref_col and fk.get('references_columns'):
+                                ref_col = fk.get('references_columns')[0]
+                            if ref_col:
+                                ref_col = ref_col.upper()
+                            break
+                    if ref_col: break
+                
+                # Fallback to PK or first column if not explicitly referenced
+                if not ref_col:
+                    pk_cols = table_schema.get('primary_key_columns', [])
+                    if pk_cols:
+                        ref_col = pk_cols[0]
+                    elif table_schema.get('columns'):
+                        ref_col = table_schema['columns'][0]['name'].upper()
+                        
+                if ref_col:
+                    sample_keys = db_loader.fetch_sample_keys(table_name, ref_col)
                     sample_keys_dict[table_name] = sample_keys
                     
             status_text.info("Applying Foreign Key Constraints...")

@@ -4,3 +4,4 @@ networkx==3.3
 streamlit>=1.30.0
 streamlit-ace>=0.1.1
 requests>=2.31.0
+sarvamai>=0.1.0
