@@ -8,7 +8,7 @@ class DataGenerator:
         self.fk_pools = {}
         self.pk_counters = {}
 
-    def generate_batch(self, table_schema: dict, sample_keys_dict: dict, batch_size: int) -> tuple[str, list[tuple]]:
+    def generate_batch(self, table_schema: dict, sample_keys_dict: dict, batch_size: int, dialect: str = "Oracle", target_schema: str = None) -> tuple[str, list[tuple]]:
         """
         Generates a batch of synthetic data for a given table.
         Returns the INSERT query and the list of tuples (data).
@@ -63,7 +63,7 @@ class DataGenerator:
                     faker_methods.append(lambda t=ref_table: random.choice(sample_keys_dict[t]))
             else:
                 col_type = col.get('type', '').upper()
-                is_numeric = 'NUMBER' in col_type or 'INT' in col_type or 'FLOAT' in col_type
+                is_numeric = any(t in col_type for t in ['NUMBER', 'INT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC', 'REAL'])
                 is_date = 'DATE' in col_type or 'TIMESTAMP' in col_type
                 
                 if is_pk:
@@ -118,10 +118,18 @@ class DataGenerator:
         if not columns_to_insert:
             return "", []
 
-        # Build the INSERT query
-        placeholders = ", ".join([f":{i+1}" for i in range(len(columns_to_insert))])
+        # Build the INSERT query with dialect-specific placeholders
+        fqn = f"{target_schema}.{table_name}" if target_schema else table_name
         columns_str = ", ".join(columns_to_insert)
-        query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
+        
+        if dialect == "PostgreSQL":
+            query = f"INSERT INTO {fqn} ({columns_str}) VALUES %s"
+        elif dialect == "MSSQL":
+            placeholders = ", ".join(["?" for _ in range(len(columns_to_insert))])
+            query = f"INSERT INTO {fqn} ({columns_str}) VALUES ({placeholders})"
+        else: # Oracle
+            placeholders = ", ".join([f":{i+1}" for i in range(len(columns_to_insert))])
+            query = f"INSERT INTO {fqn} ({columns_str}) VALUES ({placeholders})"
 
         # Generate data
         batch_data = []

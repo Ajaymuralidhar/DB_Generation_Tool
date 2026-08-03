@@ -52,9 +52,9 @@ class StreamlitLogHandler(logging.Handler):
         self.log_container.code(self.log_text, language="log")
 
 # --- DB Connection Factory ---
-def get_db_loader(user, password, dsn):
+def get_db_loader(dialect, user, password, dsn):
     loader = DBLoader()
-    loader.connect(user=user, password=password, dsn=dsn)
+    loader.connect(dialect=dialect, user=user, password=password, dsn=dsn)
     return loader
 
 # --- App Layout ---
@@ -66,12 +66,20 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     st.subheader("Database Credentials")
-    db_user = st.text_input("System Username", value="system")
-    db_password = st.text_input("System Password", value="DevPassword123", type="password")
-    db_dsn = st.text_input("DSN (Host:Port/Service)", value="localhost:1521/FREEPDB1")
+    db_dialect = st.selectbox("Database Dialect", ["Oracle", "PostgreSQL", "MSSQL"])
+    db_user = st.text_input("System Username", value="system" if db_dialect == "Oracle" else "postgres" if db_dialect == "PostgreSQL" else "sa")
+    
+    default_pw = "DevPassword123"
+    if db_dialect == "PostgreSQL": default_pw = "mysecretpassword"
+    elif db_dialect == "MSSQL": default_pw = "YourStrong@Passw0rd"
+    db_password = st.text_input("System Password", value=default_pw, type="password")
+    default_dsn = "localhost:1521/FREEPDB1"
+    if db_dialect == "PostgreSQL": default_dsn = "127.0.0.1:5433/postgres"
+    elif db_dialect == "MSSQL": default_dsn = "127.0.0.1:1433/master"
+    db_dsn = st.text_input("DSN (Host:Port/Service or DBName)", value=default_dsn)
     
     st.subheader("Generation Settings")
-    target_schema = st.text_input("Target Schema (Oracle User)", value="GEN_SCHEMA_1").upper()
+    target_schema = st.text_input("Target Schema (Target Name)", value="GEN_SCHEMA_1").upper()
     rows = st.number_input("Rows per Table", min_value=1, value=1000, step=100)
     batch_size = st.number_input("Batch Size", min_value=1, value=10000, step=100)
     force = st.checkbox("Force Recreate (Drop existing schema)", value=True)
@@ -111,7 +119,7 @@ with tab_gen:
             else:
                 with st.spinner("Translating..."):
                     try:
-                        translator = SchemaTranslator(sarvam_api_key)
+                        translator = SchemaTranslator(sarvam_api_key, dialect=db_dialect)
                         translated_json = translator.translate_to_json(raw_schema)
                         st.session_state.schema_json = translated_json
                         st.session_state.editor_key += 1
@@ -164,7 +172,7 @@ with tab_gen:
                 
             status_text.info(f"Provisioning schema {target_schema}...")
             sys_db = DBLoader()
-            sys_db.connect(user=db_user, password=db_password, dsn=db_dsn)
+            sys_db.connect(dialect=db_dialect, user=db_user, password=db_password, dsn=db_dsn)
             
             if force:
                 sys_db.drop_user(target_schema)
@@ -173,9 +181,11 @@ with tab_gen:
             sys_db.close()
             
             status_text.info(f"Connecting as {target_schema}...")
-            db_loader = get_db_loader(target_schema, "GenPass123", db_dsn)
+            # For Postgres and MSSQL, connecting directly as the new schema might not be possible simply via credentials
+            # if we didn't create a real login, but we use the same connection logic.
+            db_loader = get_db_loader(db_dialect, db_user if db_dialect != "Oracle" else target_schema, db_password if db_dialect != "Oracle" else "GenPass123", db_dsn)
             
-            schema_manager = SchemaManager(tmp_schema_path)
+            schema_manager = SchemaManager(tmp_schema_path, dialect=db_dialect, target_schema=target_schema if db_dialect != "Oracle" else None)
             data_generator = DataGenerator()
                     
             status_text.info("Creating tables...")
@@ -202,7 +212,13 @@ with tab_gen:
                 
                 while rows_generated < rows:
                     current_batch_size = min(batch_size, rows - rows_generated)
-                    query, batch_data = data_generator.generate_batch(table_schema, sample_keys_dict, current_batch_size)
+                    query, batch_data = data_generator.generate_batch(
+                        table_schema, 
+                        sample_keys_dict, 
+                        current_batch_size, 
+                        dialect=db_dialect,
+                        target_schema=target_schema if db_dialect != "Oracle" else None
+                    )
                     
                     if batch_data:
                         db_loader.execute_many(query, batch_data)
@@ -239,7 +255,11 @@ with tab_gen:
                         ref_col = table_schema['columns'][0]['name'].upper()
                         
                 if ref_col:
-                    sample_keys = db_loader.fetch_sample_keys(table_name, ref_col)
+                    sample_keys = db_loader.fetch_sample_keys(
+                        table_name, 
+                        ref_col, 
+                        target_schema=target_schema if db_dialect != "Oracle" else None
+                    )
                     sample_keys_dict[table_name] = sample_keys
                     
             status_text.info("Applying Foreign Key Constraints...")
@@ -279,11 +299,17 @@ with tab_explore:
     st.markdown("View tables generated in the current database.")
     
     try:
-        explore_sys = get_db_loader(db_user, db_password, db_dsn)
+        explore_sys = get_db_loader(db_dialect, db_user, db_password, db_dsn)
         
-        # Fetch all non-system schemas
+        # Fetch all non-system schemas dynamically based on dialect
         with explore_sys.connection.cursor() as cursor:
-            cursor.execute("SELECT username FROM all_users WHERE oracle_maintained = 'N' ORDER BY username")
+            if db_dialect == "Oracle":
+                cursor.execute("SELECT username FROM all_users WHERE oracle_maintained = 'N' ORDER BY username")
+            elif db_dialect == "PostgreSQL":
+                cursor.execute("SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'public') ORDER BY schema_name")
+            elif db_dialect == "MSSQL":
+                cursor.execute("SELECT name FROM sys.schemas WHERE principal_id = 1 AND name NOT IN ('dbo', 'guest', 'INFORMATION_SCHEMA', 'sys') ORDER BY name")
+            
             schemas = [row[0] for row in cursor.fetchall()]
             
         if schemas:
@@ -300,7 +326,12 @@ with tab_explore:
             if selected_schema:
                 # Fetch tables for the selected schema
                 with explore_sys.connection.cursor() as cursor:
-                    cursor.execute(f"SELECT table_name FROM all_tables WHERE owner = '{selected_schema}' ORDER BY table_name")
+                    if db_dialect == "Oracle":
+                        cursor.execute(f"SELECT table_name FROM all_tables WHERE owner = '{selected_schema}' ORDER BY table_name")
+                    elif db_dialect == "PostgreSQL":
+                        cursor.execute(f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{selected_schema}' ORDER BY table_name")
+                    elif db_dialect == "MSSQL":
+                        cursor.execute(f"SELECT t.name FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = '{selected_schema}' ORDER BY t.name")
                     tables = [row[0] for row in cursor.fetchall()]
                     
                 if tables:
@@ -315,7 +346,13 @@ with tab_explore:
                     if selected_table:
                         # Query table data using fully qualified name
                         import pandas as pd
-                        query = f"SELECT * FROM {selected_schema}.{selected_table} FETCH FIRST 100 ROWS ONLY"
+                        if db_dialect == "Oracle":
+                            query = f"SELECT * FROM {selected_schema}.{selected_table} FETCH FIRST 100 ROWS ONLY"
+                        elif db_dialect == "PostgreSQL":
+                            query = f"SELECT * FROM {selected_schema}.{selected_table} LIMIT 100"
+                        elif db_dialect == "MSSQL":
+                            query = f"SELECT TOP 100 * FROM {selected_schema}.{selected_table}"
+                        
                         df = pd.read_sql(query, explore_sys.connection)
                         st.dataframe(df, use_container_width=True)
                         

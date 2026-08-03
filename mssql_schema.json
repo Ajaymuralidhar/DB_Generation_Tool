@@ -1,0 +1,103 @@
+{
+  "tables": [
+    {
+      "name": "CUSTOMER_INFO",
+      "columns": [
+        {"name": "CUSTOMER_ID", "type": "INT IDENTITY(1,1)", "auto_generated": true},
+        {"name": "CUSTOMER_NAME", "type": "VARCHAR(256)", "faker": "name"},
+        {"name": "C_ADDRESS", "type": "VARCHAR(512)", "faker": "address"},
+        {"name": "C_TYPE", "type": "INT", "faker": "random_int"},
+        {"name": "C_KYC_ID", "type": "INT", "faker": "random_int"},
+        {"name": "CREATION_DATE", "type": "DATETIME2", "faker": "past_datetime"},
+        {"name": "LAST_UPDATE_TS", "type": "DATETIME2", "faker": "date_time"}
+      ],
+      "primary_key_columns": ["CUSTOMER_ID"],
+      "foreign_keys": [],
+      "indexes": [
+        {"name": "IDX_CUSTOMER_INFO_C_KYC_ID", "columns": ["C_KYC_ID"]},
+        {"name": "IDX_CUSTOMER_INFO_CUSTOMER_NAME", "columns": ["CUSTOMER_NAME"]}
+      ]
+    },
+    {
+      "name": "CUSTOMER_KYC",
+      "columns": [
+        {"name": "CUSTOMER_ID", "type": "INT", "faker": "random_int"},
+        {"name": "KYC_ID", "type": "INT", "faker": "random_int"},
+        {"name": "KYC_TYPE", "type": "VARCHAR(125)", "faker": "word"},
+        {"name": "KYC_VALUE", "type": "VARCHAR(256)", "faker": "sentence"},
+        {"name": "CREATION_DATE", "type": "DATETIME2", "faker": "past_datetime"},
+        {"name": "LAST_UPDATE_TS", "type": "DATETIME2", "faker": "date_time"}
+      ],
+      "primary_key_columns": ["CUSTOMER_ID", "KYC_ID", "KYC_TYPE"],
+      "foreign_keys": [
+        {"column": "CUSTOMER_ID", "references_table": "CUSTOMER_INFO", "references_column": "CUSTOMER_ID"}
+      ],
+      "indexes": [
+        {"name": "IDX_CUSTOMER_KYC_KYC_ID", "columns": ["KYC_ID"]}
+      ]
+    },
+    {
+      "name": "BRANCH_DETAILS",
+      "columns": [
+        {"name": "BRANCH_ID", "type": "INT IDENTITY(1,1)", "auto_generated": true},
+        {"name": "BRANCH_NAME", "type": "VARCHAR(256)", "faker": "company"},
+        {"name": "BRANCH_MANAGER", "type": "VARCHAR(256)", "faker": "name"},
+        {"name": "BRANCH_ADDRESS", "type": "VARCHAR(512)", "faker": "address"}
+      ],
+      "primary_key_columns": ["BRANCH_ID"],
+      "foreign_keys": [],
+      "indexes": []
+    },
+    {
+      "name": "ACCOUNT_INFO",
+      "columns": [
+        {"name": "ACCOUNT_ID", "type": "INT IDENTITY(1,1)", "auto_generated": true},
+        {"name": "CUSTOMER_ID", "type": "INT", "faker": "random_int"},
+        {"name": "ACCOUNT_TYPE", "type": "INT", "faker": "random_int"},
+        {"name": "CREATION_DATE", "type": "DATETIME2", "faker": "past_datetime"},
+        {"name": "LAST_UPDATE_TS", "type": "DATETIME2", "faker": "date_time"},
+        {"name": "BRANCH_ID", "type": "INT", "faker": "random_int"}
+      ],
+      "primary_key_columns": ["ACCOUNT_ID"],
+      "foreign_keys": [
+        {"column": "CUSTOMER_ID", "references_table": "CUSTOMER_INFO", "references_column": "CUSTOMER_ID"},
+        {"column": "BRANCH_ID", "references_table": "BRANCH_DETAILS", "references_column": "BRANCH_ID"}
+      ],
+      "indexes": [
+        {"name": "IDX_ACCOUNT_INFO_CUSTOMER_ID", "columns": ["CUSTOMER_ID"]}
+      ]
+    },
+    {
+      "name": "TRANSACTION_DETAILS",
+      "columns": [
+        {"name": "ACCOUNT_ID", "type": "INT", "faker": "random_int"},
+        {"name": "TRANSACTION_ID", "type": "VARCHAR(512)", "faker": "uuid"},
+        {"name": "TRANSACTION_TYPE", "type": "INT", "faker": "random_int"},
+        {"name": "TRANSACTION_DATE", "type": "DATETIME2", "faker": "past_datetime"},
+        {"name": "TRANSACTION_AMT", "type": "FLOAT", "faker": "random_float"},
+        {"name": "REMARKS", "type": "VARCHAR(512)", "faker": "sentence"}
+      ],
+      "primary_key_columns": ["ACCOUNT_ID", "TRANSACTION_ID"],
+      "foreign_keys": [
+        {"column": "ACCOUNT_ID", "references_table": "ACCOUNT_INFO", "references_column": "ACCOUNT_ID"}
+      ],
+      "indexes": []
+    },
+    {
+      "name": "ACCOUNT_BALANCE",
+      "columns": [
+        {"name": "ACCOUNT_ID", "type": "INT", "faker": "random_int"},
+        {"name": "BAL_AMOUNT", "type": "FLOAT", "faker": "random_float"},
+        {"name": "LAST_UPDATE_TS", "type": "DATETIME2 DEFAULT GETDATE()", "faker": "date_time"}
+      ],
+      "primary_key_columns": ["ACCOUNT_ID"],
+      "foreign_keys": [
+        {"column": "ACCOUNT_ID", "references_table": "ACCOUNT_INFO", "references_column": "ACCOUNT_ID"}
+      ],
+      "indexes": []
+    }
+  ],
+  "procedures": [],
+  "functions": [],
+  "triggers": []
+}
