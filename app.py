@@ -66,16 +66,14 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     st.subheader("Database Credentials")
-    db_dialect = st.selectbox("Database Dialect", ["Oracle", "PostgreSQL", "MSSQL"])
-    db_user = st.text_input("System Username", value="system" if db_dialect == "Oracle" else "postgres" if db_dialect == "PostgreSQL" else "sa")
+    db_dialect = st.selectbox("Database Dialect", ["Oracle", "MSSQL"])
+    db_user = st.text_input("System Username", value="system" if db_dialect == "Oracle" else "sa")
     
     default_pw = "DevPassword123"
-    if db_dialect == "PostgreSQL": default_pw = "mysecretpassword"
-    elif db_dialect == "MSSQL": default_pw = "YourStrong@Passw0rd"
+    if db_dialect == "MSSQL": default_pw = "YourStrong@Passw0rd"
     db_password = st.text_input("System Password", value=default_pw, type="password")
     default_dsn = "localhost:1521/FREEPDB1"
-    if db_dialect == "PostgreSQL": default_dsn = "127.0.0.1:5433/postgres"
-    elif db_dialect == "MSSQL": default_dsn = "127.0.0.1:1433/master"
+    if db_dialect == "MSSQL": default_dsn = "127.0.0.1:1433/master"
     db_dsn = st.text_input("DSN (Host:Port/Service or DBName)", value=default_dsn)
     
     st.subheader("Generation Settings")
@@ -328,8 +326,6 @@ with tab_explore:
                 with explore_sys.connection.cursor() as cursor:
                     if db_dialect == "Oracle":
                         cursor.execute(f"SELECT table_name FROM all_tables WHERE owner = '{selected_schema}' ORDER BY table_name")
-                    elif db_dialect == "PostgreSQL":
-                        cursor.execute(f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{selected_schema}' ORDER BY table_name")
                     elif db_dialect == "MSSQL":
                         cursor.execute(f"SELECT t.name FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = '{selected_schema}' ORDER BY t.name")
                     tables = [row[0] for row in cursor.fetchall()]
@@ -348,8 +344,6 @@ with tab_explore:
                         import pandas as pd
                         if db_dialect == "Oracle":
                             query = f"SELECT * FROM {selected_schema}.{selected_table} FETCH FIRST 100 ROWS ONLY"
-                        elif db_dialect == "PostgreSQL":
-                            query = f"SELECT * FROM {selected_schema}.{selected_table} LIMIT 100"
                         elif db_dialect == "MSSQL":
                             query = f"SELECT TOP 100 * FROM {selected_schema}.{selected_table}"
                         

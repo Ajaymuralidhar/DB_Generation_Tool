@@ -1,6 +1,4 @@
 import oracledb
-import psycopg2
-import psycopg2.extras
 import pyodbc
 from config import DB_USER, DB_PASSWORD, DB_DSN, logger
 
@@ -17,17 +15,6 @@ class DBLoader:
                     user=user or DB_USER,
                     password=password or DB_PASSWORD,
                     dsn=dsn or DB_DSN
-                )
-            elif dialect == "PostgreSQL":
-                # dsn format: host:port/dbname
-                host, port_db = (dsn or DB_DSN).split(':')
-                port, dbname = port_db.split('/')
-                self.connection = psycopg2.connect(
-                    user=user or DB_USER,
-                    password=password or DB_PASSWORD,
-                    host=host,
-                    port=port,
-                    dbname=dbname
                 )
             elif dialect == "MSSQL":
                 # dsn format: host:port/dbname
@@ -83,9 +70,7 @@ class DBLoader:
             
         with self.connection.cursor() as cursor:
             try:
-                if self.dialect == "PostgreSQL":
-                    psycopg2.extras.execute_values(cursor, query, data)
-                elif self.dialect == "MSSQL":
+                if self.dialect == "MSSQL":
                     cursor.fast_executemany = True
                     cursor.executemany(query, data)
                 else: # Oracle
@@ -103,8 +88,6 @@ class DBLoader:
             query = f"SELECT {key_column} FROM {fqn} FETCH FIRST {sample_size} ROWS ONLY"
         elif self.dialect == "MSSQL":
             query = f"SELECT TOP ({sample_size}) {key_column} FROM {fqn}"
-        else: # PostgreSQL
-            query = f"SELECT {key_column} FROM {fqn} LIMIT {sample_size}"
             
         with self.connection.cursor() as cursor:
             cursor.execute(query)
@@ -148,11 +131,6 @@ class DBLoader:
                     except Exception as e:
                         pass
                     cursor.execute(f"DROP USER {target_user} CASCADE")
-                elif self.dialect == "PostgreSQL":
-                    self.connection.commit()
-                    self.connection.autocommit = True
-                    cursor.execute(f"DROP SCHEMA IF EXISTS {target_user} CASCADE")
-                    self.connection.autocommit = False
                 elif self.dialect == "MSSQL":
                     self.connection.commit()
                     self.connection.autocommit = True
@@ -190,11 +168,6 @@ class DBLoader:
                     cursor.execute(f"CREATE USER {new_user} IDENTIFIED BY \"{new_password}\"")
                     cursor.execute(f"GRANT CONNECT, RESOURCE, CREATE VIEW, CREATE PROCEDURE, CREATE TRIGGER TO {new_user}")
                     cursor.execute(f"GRANT UNLIMITED TABLESPACE TO {new_user}")
-                elif self.dialect == "PostgreSQL":
-                    self.connection.commit()
-                    self.connection.autocommit = True
-                    cursor.execute(f"CREATE SCHEMA {new_user}")
-                    self.connection.autocommit = False
                 elif self.dialect == "MSSQL":
                     self.connection.commit()
                     self.connection.autocommit = True

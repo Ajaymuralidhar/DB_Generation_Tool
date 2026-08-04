@@ -93,10 +93,10 @@ class DataGenerator:
                         if hasattr(f_instance, faker_func_name):
                             faker_method = getattr(f_instance, faker_func_name)
                             
-                            # Prevent ORA-01722
+                            # Prevent ORA-01722 and MSSQL SMALLINT overflows
                             if is_numeric and faker_func_name not in ['random_int', 'random_number', 'pyfloat', 'pyint', 'random_digit']:
                                 logger.warning(f"Overriding incompatible faker '{faker_func_name}' for numeric column {col_name}")
-                                faker_methods.append(lambda inst=f_instance: inst.random_int(min=1, max=99999999))
+                                faker_methods.append(lambda inst=f_instance: inst.random_int(min=1, max=9999))
                             else:
                                 faker_methods.append(lambda m=faker_method, kw=faker_kwargs: m(**kw))
                         else:
@@ -104,14 +104,14 @@ class DataGenerator:
                             if is_date:
                                 faker_methods.append(lambda inst=f_instance: inst.date_time())
                             elif is_numeric:
-                                faker_methods.append(lambda inst=f_instance: inst.random_int(min=1, max=99999999))
+                                faker_methods.append(lambda inst=f_instance: inst.random_int(min=1, max=9999))
                             else:
                                 faker_methods.append(lambda inst=f_instance: inst.word())
                     else:
                         if is_date:
                             faker_methods.append(lambda inst=f_instance: inst.date_time())
                         elif is_numeric:
-                            faker_methods.append(lambda inst=f_instance: inst.random_int(min=1, max=99999999))
+                            faker_methods.append(lambda inst=f_instance: inst.random_int(min=1, max=9999))
                         else:
                             faker_methods.append(lambda inst=f_instance: inst.word())
 
@@ -122,9 +122,7 @@ class DataGenerator:
         fqn = f"{target_schema}.{table_name}" if target_schema else table_name
         columns_str = ", ".join(columns_to_insert)
         
-        if dialect == "PostgreSQL":
-            query = f"INSERT INTO {fqn} ({columns_str}) VALUES %s"
-        elif dialect == "MSSQL":
+        if dialect == "MSSQL":
             placeholders = ", ".join(["?" for _ in range(len(columns_to_insert))])
             query = f"INSERT INTO {fqn} ({columns_str}) VALUES ({placeholders})"
         else: # Oracle

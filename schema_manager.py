@@ -51,9 +51,7 @@ class SchemaManager:
 
     def generate_drop_ddl(self, table_name: str) -> str:
         fqn = self._fqn(table_name)
-        if self.dialect == "PostgreSQL":
-            return f"DROP TABLE IF EXISTS {fqn} CASCADE"
-        elif self.dialect == "MSSQL":
+        if self.dialect == "MSSQL":
             return f"IF OBJECT_ID('{fqn}', 'U') IS NOT NULL DROP TABLE {fqn}"
         else:
             return f"DROP TABLE {fqn} CASCADE CONSTRAINTS"
@@ -85,9 +83,7 @@ class SchemaManager:
                 rest = parts[1] if len(parts) > 1 else ""
                 
                 # Check for appropriate identity syntax based on dialect
-                if self.dialect == "PostgreSQL":
-                    col_ddl = f"{col['name']} SERIAL {rest}".strip()
-                elif self.dialect == "MSSQL":
+                if self.dialect == "MSSQL":
                     if datatype.upper() == 'NUMBER': datatype = 'INT'
                     col_ddl = f"{col['name']} {datatype} IDENTITY(1,1) {rest}".strip()
                 else: # Oracle
