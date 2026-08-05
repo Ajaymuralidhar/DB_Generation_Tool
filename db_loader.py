@@ -21,7 +21,7 @@ class DBLoader:
                 host, port_db = (dsn or DB_DSN).split(':')
                 port, dbname = port_db.split('/')
                 conn_str = (
-                    "Driver={SQL Server};"
+                    "DRIVER={ODBC Driver 17 for SQL Server};"
                     f"Server={host},{port};"
                     f"Database={dbname};"
                     f"UID={user or DB_USER};"
