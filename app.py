@@ -266,20 +266,27 @@ with tab_gen:
                 for ddl in fk_ddls:
                     db_loader.execute_ddl(ddl, ignore_errors=[2275])
                     
-            # --- PL/SQL Compilation ---
             status_text.info("Compiling Procedures & Functions...")
             for proc in schema_manager.get_procedures():
-                plsql_code = schema_manager.read_plsql_file(proc['file_path'])
-                db_loader.execute_plsql(plsql_code, proc['name'], "PROCEDURE")
+                # Grab the embedded SQL code directly from the JSON dictionary
+                plsql_code = proc.get('sql_body')
+    
+                if plsql_code:
+                    db_loader.execute_plsql(plsql_code, proc['name'], "PROCEDURE")
                 
-            for func in schema_manager.get_functions():
-                plsql_code = schema_manager.read_plsql_file(func['file_path'])
-                db_loader.execute_plsql(plsql_code, func['name'], "FUNCTION")
-                
+            # For Triggers
             status_text.info("Compiling Triggers...")
-            for trg in schema_manager.get_triggers():
-                plsql_code = schema_manager.read_plsql_file(trg['file_path'])
-                db_loader.execute_plsql(plsql_code, trg['name'], "TRIGGER")
+            for trigger in schema_manager.get_triggers():
+                trigger_code = trigger.get('sql_body')
+                if trigger_code:
+                    db_loader.execute_plsql(trigger_code, trigger['name'], "TRIGGER")
+
+            # For Functions
+            status_text.info("Compiling Functions...")
+            for func in schema_manager.get_functions():
+                func_code = func.get('sql_body')
+                if func_code:
+                    db_loader.execute_plsql(func_code, func['name'], "FUNCTION")
                     
             status_text.success("🎉 Process completed successfully!")
             
